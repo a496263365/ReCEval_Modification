@@ -21,7 +21,8 @@
 |--tools  #乱七八糟的可能有用的小工具
 |--|--list_all_usable_models.py
 |--trajectory_summary.py  #对trajectories.jsonl进行总结，得到一系列.json文件
-|--
+|--receval_modification.py  #对summary.json调用LLM进行打分评测
 ```
 
 ## How to Use
+直接运行`trajectory_summary.py`和`receval_modification.py`中的`main`函数
