@@ -1,10 +1,9 @@
 import json
 import os
-import sys
-import requests
 import logging
 import re
-from requests.auth import HTTPBasicAuth
+
+from llm_clients.DSV3Client import DSV3Client
 
 # 设置logging
 logging.basicConfig(level=logging.INFO)
@@ -21,45 +20,13 @@ def simple_sent_tokenize(text):
     sentences = [s.strip() for s in sentences if s.strip()]
     return sentences
 
-def send_generate_request(prompt, model="deepseek-r1:32b"):
-    base_url = 'http://127.0.0.1:11434'
-    
-    data = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {
-            "temperature": 0
-        },
-    }
 
-    # Send POST request
-    try:
-        response = requests.post(
-            f"{base_url}/api/generate",
-            json=data,
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()  # Check if request was successful
-
-        # Parse response
-        response = response.json()
-        answer = response.get("response", "")
-
-        pattern = r"</think>(.*)"
-        match = re.search(pattern, answer, re.DOTALL)
-
-        if match:
-            res = match.group(1).strip()
-            return res
-        return answer
-
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
-        return None
+def send_generate_request(prompt):
+    llm_client = DSV3Client()
+    return llm_client.chat(prompt)
 
 
-def generate_user_summary(user_content, model_name="deepseek-r1:32b"):
+def generate_user_summary(user_content):
     """
     生成用户内容的描述性摘要
     """
@@ -89,9 +56,9 @@ User: What's wrong with this code?
 Summary: User asks about code problems
 
 Now please generate a one-sentence summary for the above user content:"""
-    
+
     try:
-        summary = send_generate_request(prompt, model_name)
+        summary = send_generate_request(prompt)
         # 清理摘要，确保是一句话
         summary = summary.strip()
         if summary.startswith("摘要：") or summary.startswith("Summary:"):
@@ -102,7 +69,7 @@ Now please generate a one-sentence summary for the above user content:"""
         return "生成用户摘要失败"
 
 
-def generate_assistant_summary(assistant_content, model_name="deepseek-r1:32b"):
+def generate_assistant_summary(assistant_content):
     """
     生成助手内容的描述性摘要
     """
@@ -132,9 +99,9 @@ Assistant: I found syntax errors in the code...
 Summary: Assistant identifies and analyzes syntax errors in the code
 
 Now please generate a one-sentence summary for the above assistant content:"""
-    
+
     try:
-        summary = send_generate_request(prompt, model_name)
+        summary = send_generate_request(prompt)
         # 清理摘要，确保是一句话
         summary = summary.strip()
         if summary.startswith("摘要：") or summary.startswith("Summary:"):
@@ -203,22 +170,22 @@ def process_directory(input_file, output_dir):
     每个instance_id生成一个JSON文件，将所有轮次的推理步骤拼接到perturbed中
     只保留第一个question和最后一个hypothesis
     """
-    trajectory_entries = [json.loads(line) for line in open(input_file, 'r')]
-    
+    trajectory_entries = [json.loads(line) for line in open(input_file, 'r', encoding='utf-8')]
+
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
 
     for trajectory_entry in trajectory_entries:
         instance_id = trajectory_entry['instance_id']
         trajectory_messages = trajectory_entry['messages']
-        
+
         # 存储所有轮次的推理步骤
         all_reasoning_steps = []
         first_question = None
-        
+
         idx = 0
         round_index = 0
-        
+
         while idx < len(trajectory_messages):
             current_entry = []
 
@@ -238,21 +205,21 @@ def process_directory(input_file, output_dir):
 
             else:
                 if idx < len(trajectory_messages):
-                    print(f"Warning: unmatched message pair at index {idx} for instance {instance_id}")
+                    logger.error(f"Unmatched message pair at index {idx} for instance {instance_id}")
                 break
 
             # 转换为 ReCEval 格式
             try:
                 is_first_round = (round_index == 0)
                 converted_data = convert_dialogue_to_receval(current_entry, is_first_round)
-                
+
                 # 保存第一个question
                 if first_question is None:
                     first_question = converted_data['question']
-                
+
                 # 将推理步骤添加到总列表中
                 all_reasoning_steps.extend(converted_data['sentences']['perturbed'])
-                
+
                 print(f"成功转换 {instance_id} 的第 {round_index} 轮对话")
 
             except Exception as e:
@@ -270,7 +237,7 @@ def process_directory(input_file, output_dir):
                     continue  # 跳过第一个语句
                 parents = list(range(i)) if i > 0 else []  # 依赖所有之前的步骤
                 steps.append({"child": i, "parents": parents})
-            
+
             merged_data = {
                 "question": first_question,
                 "sentences": {
@@ -282,12 +249,12 @@ def process_directory(input_file, output_dir):
                 },
                 "perturbed": 0
             }
-            
+
             # 保存合并后的数据
             output_file = os.path.join(output_dir, f"{instance_id}.json")
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(merged_data, f, ensure_ascii=False, indent=2)
-            
+
             print(f"成功保存 {instance_id} 的合并数据到: {output_file} (共 {len(all_reasoning_steps)} 个推理步骤)")
         else:
             print(f"警告: {instance_id} 没有成功转换的数据")
@@ -295,8 +262,8 @@ def process_directory(input_file, output_dir):
 
 if __name__ == "__main__":
     # 配置输入和输出路径
-    trajectory_file = "/data/data_public/dtw_data/AgentSWE-Bench/log/merged_openhands_trajectories_20250626_162915.jsonl"
-    tree_files = "perturbed_trees/test"
+    trajectory_file = "./data/raw_data/deepseek-tools__deepseek-chat__t-0.00__p-1.00__c-0.00___swe_bench_lite_dev.jsonl"
+    tree_files = "./data/perturbed_trees"
 
     # 处理整个目录
     process_directory(trajectory_file, tree_files)

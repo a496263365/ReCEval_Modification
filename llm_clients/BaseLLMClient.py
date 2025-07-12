@@ -9,6 +9,7 @@ class BaseLLMClient():
         )
         self.model = None
         self.temperature = 0.0
+        self.show = False
 
     def _chat_with_messages(self, messages):
         response_full = self.client.chat.completions.create(
@@ -17,7 +18,6 @@ class BaseLLMClient():
             temperature=self.temperature,
         )
         response_content = response_full.choices[0].message.content
-        print(response_content)
+        if self.show:
+            print(response_content)
         return response_content
-
-
